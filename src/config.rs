@@ -54,9 +54,13 @@ struct Args {
     /// Detection method: pattern, llm, or hybrid
     #[arg(long, value_enum)]
     detection_method: Option<DetectionMethod>,
+
+    /// Enable mock mode (no actual API calls)
+    #[arg(long)]
+    mock_mode: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub target: String,
     pub prompts: String,
@@ -64,6 +68,7 @@ pub struct Config {
     pub timeout_ms: u64,
     pub out: String,
     pub detection_method: DetectionMethod,
+    pub mock_mode: bool,
 }
 
 impl Config {
@@ -77,6 +82,7 @@ impl Config {
         let timeout_ms = args.timeout_ms.unwrap_or(config_file.timeout_ms);
         let prompts = args.prompts.unwrap_or(config_file.prompts);
         let out = args.out.unwrap_or(config_file.out);
+        let mock_mode = args.mock_mode.unwrap_or(config_file.mock_mode);
 
         let detection_method = args
             .detection_method
@@ -89,13 +95,14 @@ impl Config {
             timeout_ms,
             out,
             detection_method,
+            mock_mode,
         })
     }
 
     fn load_file(path: &str) -> anyhow::Result<Config> {
         if !Path::new(path).exists() {
             println!(
-                "Config file not found at `{}`, creating from sample...",
+                "Config file not found at `{}`, creating from defaults...",
                 path
             );
 

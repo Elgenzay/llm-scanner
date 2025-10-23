@@ -4,3 +4,4 @@ timeout_ms = 5000
 prompts = "prompts.csv"
 out = "report.jsonl"
 detection_method = "pattern"
+mock_mode = true

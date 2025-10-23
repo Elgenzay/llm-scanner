@@ -1,7 +1,10 @@
-use crate::{chat::send_chat_query, config::Config};
+use futures::{StreamExt, stream};
+
+use crate::{chat::ChatResponse, config::Config, prompts::Prompt};
 
 mod chat;
 mod config;
+mod prompts;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,17 +17,45 @@ async fn main() -> anyhow::Result<()> {
     println!("Timeout: {}ms", config.timeout_ms);
     println!("Detection Method: {:?}", config.detection_method);
     println!("Output: {}", config.out);
+    println!("Mock Mode: {}", config.mock_mode);
     println!();
 
-    println!("Sending test message...");
+    let prompts = prompts::load_prompts(&config.prompts)?;
+    println!("Loaded {} prompts.", prompts.len());
+    println!("Sending prompts...\n");
 
-    let r = send_chat_query(
-        "This is a test message. Simply acknowledge with \"OK\".",
-        &config.target,
-    )
-    .await?;
+    // Process prompts concurrently
+    let exchanges: Vec<Exchange> = stream::iter(prompts)
+        .map(|prompt| {
+            let config = config.clone();
 
-    println!("Test response: {}", r);
+            async move {
+                let response = chat::send_chat_query(&prompt.prompt, &config).await?;
+                Ok::<Exchange, anyhow::Error>(Exchange { prompt, response })
+            }
+        })
+        .buffer_unordered(config.concurrency)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    println!("\nSent {} prompts.", exchanges.len());
+
+    // todo: identify jailbreaks
+
+    for exchange in exchanges {
+        println!("Prompt ID: {}", exchange.prompt.id);
+        println!("Prompt: {}", exchange.prompt.prompt);
+        println!("Response: {}", exchange.response.response);
+        println!("Timestamp: {}", exchange.response.timestamp);
+        println!("----------------------------------------");
+    }
 
     Ok(())
+}
+
+struct Exchange {
+    prompt: Prompt,
+    response: ChatResponse,
 }
