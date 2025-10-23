@@ -1,0 +1,6 @@
+target = "http://localhost:8000/api/chat"
+concurrency = 8
+timeout_ms = 5000
+prompts = "prompts.csv"
+out = "report.jsonl"
+detection_method = "pattern"
