@@ -1,14 +1,20 @@
-use futures::{StreamExt, stream};
+use anyhow::Context;
+use futures::{
+    StreamExt,
+    stream::{self},
+};
 
 use crate::{
     chat::QueryType,
     config::Config,
-    generic::{Evaluation, Exchange, Prompt},
+    generic::{Evaluation, Exchange, Prompt, SUMMARY_PATH},
+    output::ScanResult,
 };
 
 mod chat;
 mod config;
 mod generic;
+mod output;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -67,15 +73,24 @@ async fn main() -> anyhow::Result<()> {
     let jailbreak_count = results.iter().filter(|(_, eval)| !eval.safe).count();
     println!("Found {} jailbreaks.\n", jailbreak_count);
 
+    let mut scanner_results = Vec::with_capacity(results.len());
+
     for (exchange, evaluation) in &results {
-        println!("Prompt ID: {}", exchange.prompt.id);
-        println!("Prompt: {}", exchange.prompt.prompt);
-        println!("Response: {}", exchange.response.response);
-        println!("Safe: {}", evaluation.safe);
-        if let Some(reason) = &evaluation.reason {
+        let scan_result = ScanResult::from_exchange(exchange, evaluation);
+        scanner_results.push(scan_result);
+    }
+
+    scanner_results.sort_by_key(|r| r.prompt_id);
+
+    for result in &scanner_results {
+        println!("Prompt ID: {}", result.prompt_id);
+        println!("Prompt: {}", result.prompt);
+        println!("Response: {}", result.response);
+        println!("Safe: {}", result.safe);
+        if let Some(reason) = &result.reason {
             println!("Reason: {}", reason);
         }
-        println!("Timestamp: {}", exchange.response.timestamp);
+        println!("Timestamp: {}", result.timestamp);
         println!("----------------------------------------");
     }
 
@@ -84,6 +99,18 @@ async fn main() -> anyhow::Result<()> {
         jailbreak_count,
         results.len()
     );
+
+    let jsonl = ScanResult::as_jsonl(&scanner_results)?;
+
+    std::fs::write(&config.out, jsonl)
+        .with_context(|| format!("Failed to write results to {}", config.out))?;
+
+    let html = ScanResult::as_html(&scanner_results)?;
+
+    std::fs::write(SUMMARY_PATH, html)
+        .with_context(|| format!("Failed to write HTML report to {}", SUMMARY_PATH))?;
+
+    println!("\nResults written to {} & {}", config.out, SUMMARY_PATH);
 
     if config.mock_mode {
         println!(

@@ -2,11 +2,8 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::Config,
-    generic::{
-        DEFAULT_PROMPTS, DEFAULT_TEST_RESPONSES, PROMPTS_PATH, TEST_RESPONSES_PATH,
-        load_lines_with_default,
-    },
+    config::{Config, load_lines_with_default},
+    generic::{DEFAULT_PROMPTS, DEFAULT_TEST_RESPONSES, PROMPTS_PATH, TEST_RESPONSES_PATH},
 };
 
 pub enum QueryType {

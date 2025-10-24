@@ -3,6 +3,8 @@ use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 use std::{fs, path::Path};
 
+use crate::generic::{DEFAULT_JUDGE_PROMPT, JUDGE_PROMPT_PATH};
+
 const DEFAULT_CONFIG: &str = include_str!("../config.default.toml");
 
 #[derive(Debug, Clone, ValueEnum, Deserialize)]
@@ -69,6 +71,9 @@ pub struct Config {
     pub out: String,
     pub detection_method: DetectionMethod,
     pub mock_mode: bool,
+
+    // Option because it's omitted from config.toml, but expected to be populated after load
+    pub judge_prompt: Option<String>,
 }
 
 impl Config {
@@ -88,6 +93,8 @@ impl Config {
             .detection_method
             .unwrap_or(config_file.detection_method);
 
+        let judge_prompt = load_file_with_default(JUDGE_PROMPT_PATH, DEFAULT_JUDGE_PROMPT)?;
+
         Ok(Config {
             target,
             prompts,
@@ -96,26 +103,37 @@ impl Config {
             out,
             detection_method,
             mock_mode,
+            judge_prompt: Some(judge_prompt),
         })
     }
 
     fn load_file(path: &str) -> anyhow::Result<Config> {
-        if !Path::new(path).exists() {
-            println!(
-                "Config file not found at `{}`, creating from defaults...",
-                path
-            );
-
-            fs::write(path, DEFAULT_CONFIG)
-                .context(format!("Failed to create config file: {}", path))?;
-
-            println!("Created config file: {}", path);
-        }
-
-        let contents =
-            fs::read_to_string(path).context(format!("Failed to read config file: {}", path))?;
-
+        let contents = load_file_with_default(path, DEFAULT_CONFIG)?;
         let config: Config = toml::from_str(&contents).context("Failed to parse config file")?;
         Ok(config)
     }
+}
+
+/// Load lines from a file, creating it from a default if it doesn't exist
+pub fn load_lines_with_default(path: &str, default_content: &str) -> anyhow::Result<Vec<String>> {
+    let content = load_file_with_default(path, default_content)?;
+
+    Ok(content
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
+/// Load file contents as a string, creating it from default if it doesn't exist
+pub fn load_file_with_default(path: &str, default_content: &str) -> anyhow::Result<String> {
+    if !Path::new(path).exists() {
+        println!("File not found at `{}`, creating from defaults...", path);
+        fs::write(path, default_content).context(format!("Failed to create file: {}", path))?;
+        println!("Created file: {}", path);
+    }
+
+    let content = fs::read_to_string(path).context(format!("Failed to read file: {}", path))?;
+
+    Ok(content)
 }

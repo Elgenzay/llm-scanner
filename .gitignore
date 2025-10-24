@@ -2,3 +2,7 @@
 /config.toml
 /data/*
 !/data/.gitkeep
+report.jsonl
+prompts.csv
+/output/*
+!/output/.gitkeep
