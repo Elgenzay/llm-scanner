@@ -1,17 +1,30 @@
-use std::fs;
-
 use anyhow::Context;
-use rand::prelude::IndexedRandom;
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    generic::{
+        DEFAULT_PROMPTS, DEFAULT_TEST_RESPONSES, PROMPTS_PATH, TEST_RESPONSES_PATH,
+        load_lines_with_default,
+    },
+};
+
+pub enum QueryType {
+    Prompt,
+    Evaluation,
+}
 
 /// Send a query to the specified URL and return the response message.
-pub async fn send_chat_query(query: &str, config: &Config) -> anyhow::Result<ChatResponse> {
-    println!("Sending query: {}", query);
-
+pub async fn send_chat_query(
+    query: &str,
+    config: &Config,
+    query_type: QueryType,
+) -> anyhow::Result<ChatResponse> {
     if config.mock_mode {
-        return mock_response();
+        match query_type {
+            QueryType::Prompt => return mock_response(query),
+            QueryType::Evaluation => return mock_evaluation(),
+        }
     }
 
     let request = ChatRequest {
@@ -46,27 +59,40 @@ struct ChatRequest {
     message: String,
 }
 
-fn mock_response() -> anyhow::Result<ChatResponse> {
-    let test_responses_content = fs::read_to_string("test_responses.csv")
-        .context("Failed to read test_responses.json in mock mode")?;
+fn mock_response(query: &str) -> anyhow::Result<ChatResponse> {
+    let responses = load_lines_with_default(TEST_RESPONSES_PATH, DEFAULT_TEST_RESPONSES)
+        .context("Failed to read test responses file in mock mode")?;
 
-    let mut responses = Vec::new();
+    let prompts = load_lines_with_default(PROMPTS_PATH, DEFAULT_PROMPTS)
+        .context("Failed to read prompts file in mock mode")?;
 
-    for line in test_responses_content.lines() {
-        let response = line.trim();
+    let mut prompt_index = None;
 
-        if response.is_empty() {
-            continue;
+    for (index, prompt) in prompts.iter().enumerate() {
+        if query.contains(prompt) {
+            prompt_index = Some(index);
+            break;
         }
-
-        responses.push(line);
     }
 
-    // Pick a response at random
-    let response = responses.choose(&mut rand::rng()).ok_or("OK").unwrap();
+    let response = if let Some(index) = prompt_index {
+        responses
+            .get(index)
+            .unwrap_or(&"OK".to_string())
+            .to_string()
+    } else {
+        "OK".to_string()
+    };
 
     Ok(ChatResponse {
-        response: response.to_string(),
+        response,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+fn mock_evaluation() -> anyhow::Result<ChatResponse> {
+    Ok(ChatResponse {
+        response: r#"{"safe": true, "reason": "(Mock safe reason)"}"#.to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
     })
 }

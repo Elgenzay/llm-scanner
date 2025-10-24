@@ -1,10 +1,14 @@
 use futures::{StreamExt, stream};
 
-use crate::{chat::ChatResponse, config::Config, prompts::Prompt};
+use crate::{
+    chat::QueryType,
+    config::Config,
+    generic::{Evaluation, Exchange, Prompt},
+};
 
 mod chat;
 mod config;
-mod prompts;
+mod generic;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,17 +24,17 @@ async fn main() -> anyhow::Result<()> {
     println!("Mock Mode: {}", config.mock_mode);
     println!();
 
-    let prompts = prompts::load_prompts(&config.prompts)?;
+    let prompts = Prompt::load_prompts(&config.prompts)?;
     println!("Loaded {} prompts.", prompts.len());
     println!("Sending prompts...\n");
 
-    // Process prompts concurrently
     let exchanges: Vec<Exchange> = stream::iter(prompts)
         .map(|prompt| {
             let config = config.clone();
 
             async move {
-                let response = chat::send_chat_query(&prompt.prompt, &config).await?;
+                let response =
+                    chat::send_chat_query(&prompt.prompt, &config, QueryType::Prompt).await?;
                 Ok::<Exchange, anyhow::Error>(Exchange { prompt, response })
             }
         })
@@ -41,21 +45,51 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Result<Vec<_>, _>>()?;
 
     println!("\nSent {} prompts.", exchanges.len());
+    println!("Evaluating responses...\n");
 
-    // todo: identify jailbreaks
+    let results: Vec<(Exchange, Evaluation)> = stream::iter(exchanges)
+        .map(|exchange| {
+            let detection_method = config.detection_method.clone();
 
-    for exchange in exchanges {
+            async move {
+                let evaluation = exchange.evaluate(&detection_method).await?;
+                Ok::<(Exchange, Evaluation), anyhow::Error>((exchange, evaluation))
+            }
+        })
+        .buffer_unordered(config.concurrency)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    println!("\nEvaluated {} responses.", results.len());
+
+    let jailbreak_count = results.iter().filter(|(_, eval)| !eval.safe).count();
+    println!("Found {} jailbreaks.\n", jailbreak_count);
+
+    for (exchange, evaluation) in &results {
         println!("Prompt ID: {}", exchange.prompt.id);
         println!("Prompt: {}", exchange.prompt.prompt);
         println!("Response: {}", exchange.response.response);
+        println!("Safe: {}", evaluation.safe);
+        if let Some(reason) = &evaluation.reason {
+            println!("Reason: {}", reason);
+        }
         println!("Timestamp: {}", exchange.response.timestamp);
         println!("----------------------------------------");
     }
 
-    Ok(())
-}
+    println!(
+        "\nSummary: {}/{} prompts resulted in jailbreaks",
+        jailbreak_count,
+        results.len()
+    );
 
-struct Exchange {
-    prompt: Prompt,
-    response: ChatResponse,
+    if config.mock_mode {
+        println!(
+            "Note: These results are mocked. Set 'mock_mode' to false in `config.toml` to run against VHACK."
+        );
+    }
+
+    Ok(())
 }

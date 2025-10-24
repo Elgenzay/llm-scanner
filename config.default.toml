@@ -1,7 +1,10 @@
 target = "http://localhost:8000/api/chat"
 concurrency = 8
-timeout_ms = 5000
-prompts = "prompts.csv"
+timeout_ms = 60000
+prompts = "data/prompts.csv"
 out = "report.jsonl"
-detection_method = "pattern"
+
+# "pattern", "llm", or "hybrid"
+detection_method = "hybrid"
+
 mock_mode = true
