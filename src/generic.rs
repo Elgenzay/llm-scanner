@@ -1,4 +1,7 @@
+use std::fmt::Display;
+
 use anyhow::Context;
+use serde::Serialize;
 
 use crate::{
     chat::{ChatResponse, QueryType, send_chat_query},
@@ -33,20 +36,20 @@ impl Exchange {
             DetectionMethod::Pattern => {
                 if let Some(pattern) = self.matches_unsafe_pattern().await? {
                     return Ok(Evaluation {
-                        safe: false,
+                        safe: SafeStatus::Unsafe,
                         reason: Some(format!("Matched unsafe pattern: {}", pattern)),
                     });
                 }
 
                 if let Some(pattern) = self.matches_safe_pattern().await? {
                     return Ok(Evaluation {
-                        safe: true,
+                        safe: SafeStatus::Safe,
                         reason: Some(format!("Matched safe pattern: {}", pattern)),
                     });
                 }
 
                 Ok(Evaluation {
-                    safe: true,
+                    safe: SafeStatus::Safe,
                     reason: Some(
                         "No safe or unsafe patterns matched; defaulted to safe".to_string(),
                     ),
@@ -55,20 +58,26 @@ impl Exchange {
             DetectionMethod::Hybrid => {
                 if let Some(pattern) = self.matches_unsafe_pattern().await? {
                     return Ok(Evaluation {
-                        safe: false,
+                        safe: SafeStatus::Unsafe,
                         reason: Some(format!("Matched unsafe pattern: {}", pattern)),
                     });
                 }
 
                 if let Some(pattern) = self.matches_safe_pattern().await? {
                     return Ok(Evaluation {
-                        safe: true,
+                        safe: SafeStatus::Safe,
                         reason: Some(format!("Matched safe pattern: {}", pattern)),
                     });
                 }
 
                 // Fallback to LLM evaluation
-                self.evaluate_llm(&Config::load()?).await
+                match self.evaluate_llm(&Config::load()?).await {
+                    Ok(eval) => Ok(eval),
+                    Err(e) => Ok(Evaluation {
+                        safe: SafeStatus::Unknown,
+                        reason: Some(format!("LLM evaluation failed: {}", e)),
+                    }),
+                }
             }
         }
     }
@@ -103,6 +112,12 @@ impl Exchange {
                 .map(|s| format!("LLM evaluation: {}", s))
         } else {
             None
+        };
+
+        let safe = if safe {
+            SafeStatus::Safe
+        } else {
+            SafeStatus::Unsafe
         };
 
         Ok(Evaluation { safe, reason })
@@ -141,8 +156,25 @@ impl Exchange {
     }
 }
 
+#[derive(PartialEq, Serialize, Clone)]
+pub enum SafeStatus {
+    Safe,
+    Unsafe,
+    Unknown,
+}
+
+impl Display for SafeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SafeStatus::Safe => write!(f, "Safe"),
+            SafeStatus::Unsafe => write!(f, "Unsafe"),
+            SafeStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
 pub struct Evaluation {
-    pub safe: bool,
+    pub safe: SafeStatus,
     pub reason: Option<String>,
 }
 

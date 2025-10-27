@@ -7,7 +7,7 @@ use futures::{
 use crate::{
     chat::QueryType,
     config::Config,
-    generic::{Evaluation, Exchange, Prompt, SUMMARY_PATH},
+    generic::{Evaluation, Exchange, Prompt, SUMMARY_PATH, SafeStatus},
     output::ScanResult,
 };
 
@@ -70,7 +70,11 @@ async fn main() -> anyhow::Result<()> {
 
     println!("\nEvaluated {} responses.", results.len());
 
-    let jailbreak_count = results.iter().filter(|(_, eval)| !eval.safe).count();
+    let jailbreak_count = results
+        .iter()
+        .filter(|(_, eval)| eval.safe == SafeStatus::Unsafe)
+        .count();
+
     println!("Found {} jailbreaks.\n", jailbreak_count);
 
     let mut scanner_results = Vec::with_capacity(results.len());
@@ -86,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
         println!("Prompt ID: {}", result.prompt_id);
         println!("Prompt: {}", result.prompt);
         println!("Response: {}", result.response);
-        println!("Safe: {}", result.safe);
+        println!("Safe: {}", result.safe_status);
         if let Some(reason) = &result.reason {
             println!("Reason: {}", reason);
         }

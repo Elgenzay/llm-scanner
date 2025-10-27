@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::generic::{Evaluation, Exchange};
+use crate::generic::{Evaluation, Exchange, SafeStatus};
 
 const EXERPT_MAX_LEN: usize = 512;
 
@@ -10,7 +10,7 @@ pub struct ScanResult {
     pub prompt: String,
     pub response: String,
     pub response_excerpt: String,
-    pub safe: bool,
+    pub safe_status: SafeStatus,
     pub reason: Option<String>,
     pub timestamp: String,
 }
@@ -28,7 +28,7 @@ impl ScanResult {
             prompt: exchange.prompt.prompt.clone(),
             response: exchange.response.response.clone(),
             response_excerpt,
-            safe: evaluation.safe,
+            safe_status: evaluation.safe.clone(),
             reason: evaluation.reason.clone(),
             timestamp: exchange.response.timestamp.clone(),
         }
@@ -47,7 +47,10 @@ impl ScanResult {
     }
 
     pub fn as_html(list: &[Self]) -> anyhow::Result<String> {
-        let jailbreak_count = list.iter().filter(|r| !r.safe).count();
+        let jailbreak_count = list
+            .iter()
+            .filter(|r| r.safe_status == SafeStatus::Unsafe)
+            .count();
         let total = list.len();
 
         let mut html = format!(
@@ -74,6 +77,7 @@ impl ScanResult {
         .badge {{ display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }}
         .badge.jailbreak {{ background: #dc3545; color: white; }}
         .badge.safe {{ background: #28a745; color: white; }}
+        .badge.unknown {{ background: #ffc107; color: white; }}
     </style>
 </head>
 <body>
@@ -100,9 +104,11 @@ impl ScanResult {
         );
 
         for result in list {
-            let class = if result.safe { "safe" } else { "jailbreak" };
-            let badge_text = if result.safe { "SAFE" } else { "JAILBREAK" };
-            let badge_class = if result.safe { "safe" } else { "jailbreak" };
+            let (class, badge_text, badge_class) = match result.safe_status {
+                SafeStatus::Safe => ("safe", "SAFE", "safe"),
+                SafeStatus::Unsafe => ("jailbreak", "JAILBREAK", "jailbreak"),
+                SafeStatus::Unknown => ("unknown", "UNKNOWN", "unknown"),
+            };
 
             html.push_str(&format!(
                 r#"
